@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "layout-fixer"
+version = "0.1.0"
+description = "Автоисправление раскладки клавиатуры для GNOME/Wayland (аналог xneur / Punto Switcher)"
+requires-python = ">=3.10"
+# Системные зависимости (apt), а НЕ pip — PyGObject и evdev собираются из исходников
+# и в системе уже есть готовыми пакетами:
+#   sudo apt install python3-evdev python3-gi
+dependencies = []
+
+[project.scripts]
+layout-fixer = "layout_fixer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,17 @@
+# Правило доступа к /dev/uinput для layout-fixer.
+#
+# Зачем: демон должен ИНЪЕЦИРОВАТЬ клавиши (Backspace, печать слова, переключение
+# раскладки). На Wayland это возможно только через /dev/uinput, а по умолчанию
+# устройство доступно лишь root'у (crw------- root root).
+#
+# Пользователь добавляется в группу input (он же читает /dev/input/event*),
+# поэтому достаточно выдать группе input права на запись.
+#
+# Установка:
+#   sudo cp udev/99-layout-fixer-uinput.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=misc
+#
+# Проверка: ls -l /dev/uinput  ->  crw-rw---- root input
+
+KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
