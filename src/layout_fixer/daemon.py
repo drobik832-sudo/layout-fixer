@@ -34,7 +34,12 @@ from .decisions_log import DEFAULT_PATH as DECISIONS_LOG_PATH
 from .decisions_log import DecisionLog
 from .detector import Decision, Detector
 from .fixer import Fixer
-from .gnome_settings import MruWatcher, read_xkb_options, xkb_layout_ids
+from .gnome_settings import (
+    MruWatcher,
+    read_xkb_options,
+    xkb_group_index,
+    xkb_layout_ids,
+)
 from .hunspell import SpellCheckers
 from .injector import VIRTUAL_DEVICE_NAME, Injector
 from .keys import MODIFIER_KEYS, ModifierState
@@ -101,7 +106,18 @@ class Daemon:
             injector=self.injector,
             settle=config.settle,
             tracked_actuator_codes=tracked_codes,
+            normalize_groups=self._normalize_and_read_group,
         )
+        # Наша виртуальная клавиатура появляется в системе, и xf86-input-evdev
+        # на каждое новое устройство добавляет группу XKB. Список раздувается
+        # до «us, ru, ru», и ScrollLock начинает циклить
+        # us -> ru -> ru(дубль) -> us: нажатие из русской выглядит как «ничего
+        # не произошло», а индикатор группы отвечает не на тот вопрос. Демон
+        # читает раскладку неверно, жмёт ScrollLock не вовремя, и русская
+        # раскладка уезжает в английскую. Поэтому дубль снимается сразу после
+        # создания инжектора, а не выясняется потом по таймеру.
+        self._normalize_and_read_group()
+
         self.mods = ModifierState()
         self.fixer = Fixer(self.injector, self.tables, self.state, config, mods=self.mods)
 
@@ -261,6 +277,11 @@ class Daemon:
                 break
             except Exception:
                 log.exception("ошибка в цикле обновления раскладки")
+
+    def _normalize_and_read_group(self) -> int | None:
+        """Привести список групп к числу раскладок и вернуть активный индекс."""
+        self._restore_layout_groups()
+        return xkb_group_index(self.tables.layouts)
 
     def _on_device_change(self) -> None:
         """Подключилось новое устройство ввода — снять лишнюю группу XKB сразу.

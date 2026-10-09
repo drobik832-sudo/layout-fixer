@@ -122,6 +122,7 @@ class LayoutState:
         tracked_actuator_codes: set[int] | None = None,
         mru_stale: float = MRU_STALE_DELAY,
         group_reader: Callable[[list[str]], int | None] | None = None,
+        normalize_groups: Callable[[], int | None] | None = None,
     ):
         if not layouts:
             raise ValueError("список раскладок пуст")
@@ -142,6 +143,8 @@ class LayoutState:
         # Источник истины для refresh()/ensure(). По умолчанию — реальный
         # X-сервер; тесты подменяют, чтобы не зависеть от машины, где идут тесты.
         self._group_reader = group_reader or xkb_group_index
+        # Приводить список групп к числу раскладок, если счёт разошёлся.
+        self._normalize_groups = normalize_groups
         if current is not None and current not in layouts:
             raise ValueError(f"раскладка {current!r} отсутствует в списке {layouts}")
         self._index = layouts.index(current) if current is not None else 0
@@ -174,6 +177,13 @@ class LayoutState:
         слова не в той раскладке.
         """
         index = self._group_reader(self.layouts)
+        if index is None:
+            # Число групп не совпадает с числом раскладок: где-то висящий
+            # дубль, чаще всего от виртуальной клавиатуры. Индикатор в таком
+            # виде отвечает не на наш вопрос, поэтому сначала приводим список,
+            # а угадывать раскладку по mru-sources нельзя — он отстаёт.
+            if self._normalize_groups is not None:
+                index = self._normalize_groups()
         if index is not None:
             self.set_current(self.layouts[index])
             return self.current
