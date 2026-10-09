@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -137,40 +138,51 @@ class MruWatcher(SettingsWatcher):
         self._last = current
         self._on_layout(current)
 
-def xkb_groups() -> list[str]:
-    """Список групп XKB ровно в том виде, в каком их держит X-сервер."""
+_groups_cache = []
+_led_cache = None
+
+# Насколько свежим считаем прочитанный индикатор. Короткое окно нужно, чтобы
+# ensure() не платил за два чтения подряд; сбрасывается при каждом нашем
+# переключении (см. invalidate_xkb_cache), поэтому после него читаем заново.
+LED_CACHE_TTL_S = 0.12
+
+
+def invalidate_xkb_cache() -> None:
+    """Сбросить кеш: вызывать после любого нашего переключения раскладки."""
+    global _led_cache
+    _led_cache = None
+
+
+def xkb_groups(refresh: bool = False) -> list[str]:
+    """Список групп XKB ровно в том виде, в каком их держит X-сервер.
+
+    Кешируется: он меняется только когда кто-то пересобирает список, а читать
+    его — значит породить ``setxkbmap -query`` (17 мс) на каждой правке.
+    """
+    global _groups_cache
+    if _groups_cache and not refresh:
+        return _groups_cache
     try:
         out = subprocess.run(
             ["setxkbmap", "-query"], capture_output=True, text=True, timeout=3
         ).stdout
     except (OSError, subprocess.SubprocessError):
-        return []
+        return _groups_cache
+    groups: list[str] = []
     for line in out.splitlines():
         if line.startswith("layout:"):
-            return [p for p in line.split(":", 1)[1].strip().split(",") if p]
-    return []
+            groups = [p for p in line.split(":", 1)[1].strip().split(",") if p]
+            break
+    if groups:
+        _groups_cache = groups
+    return _groups_cache
 
 
-def xkb_group_index(layouts: list[str], group_count: int | None = None) -> int | None:
-    """Индекс активной группы XKB, прочитанный у X-сервера.
-
-    ``mru-sources`` обновляется с задержкой 26–329 мс, и в это окно демон
-    успевал поверить устаревшему значению. Индикатор группы у X-сервера — это
-    состояние самого сервера, без задержки.
-
-    ВАЖНО: работает только когда число групп равно числу раскладок. Если групп
-    больше (дубль `ru` от виртуальной клавиатуры — ydotoold или наша
-    собственная), индикатор показывает лишь первые две группы и отвечает не на
-    тот вопрос. Тогда возвращается None, и вызывающий код обязан привести
-    список в порядок, а не угадывать: иначе демон читает раскладку неверно,
-    жмёт ScrollLock не вовремя, и русская раскладка уезжает в английскую.
-    """
-    if group_count is None:
-        group_count = len(xkb_groups())
-    if group_count != len(layouts):
-        return None
-    if len(layouts) < 2:
-        return None
+def _led_mask() -> int | None:
+    global _led_cache
+    now = time.monotonic()
+    if _led_cache is not None and now - _led_cache[0] < LED_CACHE_TTL_S:
+        return _led_cache[1]
     try:
         out = subprocess.run(
             ["xset", "q"], capture_output=True, text=True, timeout=3
@@ -178,11 +190,32 @@ def xkb_group_index(layouts: list[str], group_count: int | None = None) -> int |
     except (OSError, subprocess.SubprocessError):
         return None
     for line in out.splitlines():
-        if "LED mask:" not in line:
-            continue
-        try:
-            mask = int(line.split("LED mask:")[1].split()[0], 16)
-        except (IndexError, ValueError):
-            return None
-        return 1 if mask & (1 << 12) else 0
+        if "LED mask:" in line:
+            try:
+                mask = int(line.split("LED mask:")[1].split()[0], 16)
+            except (IndexError, ValueError):
+                return None
+            _led_cache = (now, mask)
+            return mask
     return None
+
+
+def xkb_group_index(layouts: list[str]) -> int | None:
+    """Индекс активной группы XKB, прочитанный у X-сервера.
+
+    ``mru-sources`` обновляется с задержкой 26–329 мс, и в это окно демон
+    успевал поверить устаревшему значению. Индикатор группы у X-сервера — это
+    состояние самого сервера, без задержки.
+
+    Работает только когда число групп равно числу раскладок. Если групп больше
+    (дубль ``ru`` от виртуальной клавиатуры), индикатор показывает лишь первые
+    две группы и отвечает не на тот вопрос — тогда возвращается None, и
+    вызывающий код обязан привести список в порядок, а не угадывать.
+    """
+    groups = xkb_groups()
+    if len(groups) != len(layouts) or len(layouts) < 2:
+        return None
+    mask = _led_mask()
+    if mask is None:
+        return None
+    return 1 if mask & (1 << 12) else 0

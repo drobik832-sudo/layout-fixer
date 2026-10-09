@@ -108,16 +108,6 @@ class Daemon:
             tracked_actuator_codes=tracked_codes,
             normalize_groups=self._normalize_and_read_group,
         )
-        # Наша виртуальная клавиатура появляется в системе, и xf86-input-evdev
-        # на каждое новое устройство добавляет группу XKB. Список раздувается
-        # до «us, ru, ru», и ScrollLock начинает циклить
-        # us -> ru -> ru(дубль) -> us: нажатие из русской выглядит как «ничего
-        # не произошло», а индикатор группы отвечает не на тот вопрос. Демон
-        # читает раскладку неверно, жмёт ScrollLock не вовремя, и русская
-        # раскладка уезжает в английскую. Поэтому дубль снимается сразу после
-        # создания инжектора, а не выясняется потом по таймеру.
-        self._normalize_and_read_group()
-
         self.mods = ModifierState()
         self.fixer = Fixer(self.injector, self.tables, self.state, config, mods=self.mods)
 
@@ -222,7 +212,14 @@ class Daemon:
 
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
-        self._restore_layout_groups()
+        # Наша виртуальная клавиатура уже создана в __init__, и xf86-input-evdev
+        # на каждое новое устройство ввода добавил группу XKB. Список раздувается
+        # до «us, ru, ru», ScrollLock циклит us -> ru -> ru(дубль) -> us, и
+        # индикатор группы отвечает не на тот вопрос: демон читает раскладку
+        # неверно и уводит русскую в английскую. Дубль снимается здесь — при
+        # старте, а не по таймеру. В __init__ это делать нельзя: конструктор
+        # должен быть без побочных эффектов, иначе тесты бьют по X-серверу.
+        self._normalize_and_read_group()
         self._log_startup()
 
         reader = KeyboardReader(

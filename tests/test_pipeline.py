@@ -89,6 +89,10 @@ class PipelineTestCase(unittest.TestCase):
         # состояние. Иначе ensure() читает настоящий X-сервер машины, где
         # идут тесты, и результат зависит от того, какая раскладка там сейчас.
         daemon.state._group_reader = lambda layouts: layouts.index(daemon.state.current)
+        # Нормализация групп тоже ходит в X-сервер (setxkbmap). В тестах она
+        # не нужна: состояние и так наше собственное.
+        daemon.state._normalize_groups = lambda: layouts.index(daemon.state.current) \
+            if (layouts := daemon.state.layouts) else None
         # В тестах эмулируем, что в системе настроен тот же актуатор, что в конфиге демона
         actuator = get_actuator(config.actuator)
         daemon.state._actuator_codes = {actuator.code}

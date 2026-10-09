@@ -36,7 +36,13 @@ from dataclasses import dataclass
 
 from evdev import ecodes as e
 
-from .gnome_settings import mru_layouts, read_xkb_options, xkb_group_index
+from .gnome_settings import (
+    invalidate_xkb_cache,
+    mru_layouts,
+    read_xkb_options,
+    xkb_group_index,
+    xkb_groups,
+)
 from .injector import Injector
 
 log = logging.getLogger(__name__)
@@ -203,6 +209,7 @@ class LayoutState:
     def _mark_switched(self) -> None:
         """Пометить, что только что было переключение: mru-sources ещё устарел."""
         self._mru_ignore_until = time.monotonic() + self.mru_stale
+        invalidate_xkb_cache()
 
     def mru_stale_guard_active(self) -> bool:
         """Текущий момент находится в окне, когда mru-sources гарантированно устарел."""
