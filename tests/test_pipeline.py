@@ -1398,6 +1398,29 @@ class TestPointerClick(PipelineTestCase):
             "после правки должна остаться русская, а не вернуться в us",
         )
 
+    def test_click_inside_word_blocks_fix(self) -> None:
+        """Клик ВНУТРИ слова — курсор в середине, правку делать нельзя.
+
+        Жалоба: «периодически курсор перескакивает и начинает писать посередине
+        фразы». Причина — проверка «клик опасен только если случился после
+        ПОСЛЕДНЕЙ буквы слова». Клик между буквами проходил как безобидный, а
+        Backspace съедал символы перед курсором и исправленное слово вставало
+        в середину фразы.
+        """
+        daemon, recorder = self.make_daemon(mode="fix")
+        self.feed_char(daemon, "h", "us")
+        daemon._on_pointer_click("mouse", moved=True)   # клик ВНУТРИ слова
+        self.feed_char(daemon, "b", "us")
+        self.feed_char(daemon, " ", "us")
+        self.assertEqual(recorder.calls, [], "курсор стоит внутри слова — трогать нельзя")
+
+    def test_click_before_word_does_not_block(self) -> None:
+        daemon, recorder = self.make_daemon(mode="fix")
+        daemon._on_pointer_click("mouse", moved=True)   # клик ДО начала слова
+        self.feed_text(daemon, "ghb", "us")
+        self.feed_char(daemon, " ", "us")
+        self.assertEqual(recorder.texts(), [("при ", "ru")])
+
     def test_click_without_movement_does_not_block(self) -> None:
         """Клик без перемещения курсор не двигает — правка проходит.
 

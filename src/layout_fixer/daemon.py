@@ -122,6 +122,7 @@ class Daemon:
         self._caret_maybe_moved = False
         self._caret_click_at = 0.0
         self._last_char_at = 0.0
+        self._word_started_at = 0.0
         self._pending_fix: tuple[Decision, str] | None = None
         self._buffer_changed_at = time.monotonic()
         self._focus = ActiveWindow()
@@ -521,6 +522,8 @@ class Daemon:
         if char.isalpha():
             # Буква: значит всё отложенное ранее было частью слова.
             self.buffer.commit_pending()
+            if not self.buffer:
+                self._word_started_at = time.monotonic()
             self.buffer.append(char)
             self._buffer_changed_at = self._last_char_at = time.monotonic()
             return
@@ -590,7 +593,12 @@ class Daemon:
         """
         if not self._caret_maybe_moved:
             return False
-        return self._caret_click_at > self._last_char_at
+        # Опасен клик, случившийся после НАЧАЛА текущего слова, а не только
+        # после последней буквы. Клик внутри слова ставит курсор в середину:
+        # Backspace съест символы перед ним, и исправленное слово вставится
+        # посреди фразы. Проверка «только после последней буквы» это
+        # пропускала — жалоба была ровно на такое.
+        return self._caret_click_at > self._word_started_at
 
     def _reset_word(self) -> None:
         """Сбросить буфер слова и забыть, что курсор мог уехать."""
@@ -598,6 +606,7 @@ class Daemon:
         self._caret_maybe_moved = False
         self._pending_fix = None
         self._last_char_at = 0.0
+        self._word_started_at = 0.0
 
     def _on_pointer_click(self, device_name: str, moved: bool = True) -> None:
         """Клик мышью. Опасен только если указатель перед этим двигался.
