@@ -219,17 +219,43 @@ class KeyboardReader:
                 device.close()
 
     async def _pump(self, device: InputDevice) -> None:
+        """Читать устройство в отдельном потоке, а не в event loop.
+
+        Кольцевой буфер ядра конечен, и при переполнении события теряются
+        молча: пропадают отдельные буквы, а слова слипаются — «историю за»
+        приходило как «историюза», «почему» как «почеу». Неделя таких жалоб.
+
+        Раньше чтение шло через ``async_read_loop()`` прямо в event loop. Стоило
+        loop встать — а он вставал на ``time.sleep(settle)`` при переключении
+        раскладки и на подпроцессы чтения состояния X-сервера — и за это время
+        ввод успевал переполнить буфер.
+
+        Теперь чтение живёт в своём потоке, а в loop события попадают через
+        ``call_soon_threadsafe``. Loop может встать сколько угодно: события
+        ждут в очереди Python, а не теряются в буфере ядра.
+        """
+        loop = asyncio.get_running_loop()
         try:
-            async for event in device.async_read_loop():
-                if event.type != e.EV_KEY:
-                    continue
-                try:
-                    self.on_event(device, event)
-                except Exception:  # ошибка обработчика не должна убивать поток чтения
-                    log.exception("ошибка обработки события %s", event)
-        except OSError:
+            await asyncio.to_thread(self._read_blocking, device, loop)
+        except (OSError, asyncio.CancelledError):
             # Устройство отключено — это нормальный сценарий, rescan всё поправит.
             return
+
+    def _read_blocking(self, device: InputDevice, loop) -> None:
+        for event in device.read_loop():
+            if event.type != e.EV_KEY:
+                continue
+            try:
+                loop.call_soon_threadsafe(self._deliver, device, event)
+            except RuntimeError:
+                # loop закрыт — читать больше незачем.
+                return
+
+    def _deliver(self, device: InputDevice, event) -> None:
+        try:
+            self.on_event(device, event)
+        except Exception:  # ошибка обработчика не должна убивать поток чтения
+            log.exception("ошибка обработки события %s", event)
 
     async def run(self) -> None:
         await self._rescan_devices()
