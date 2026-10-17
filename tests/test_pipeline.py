@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from evdev import InputEvent, ecodes as e  # noqa: E402
 
 from layout_fixer.config import Config  # noqa: E402
+import layout_fixer.daemon as daemon_module  # noqa: E402
 from layout_fixer.daemon import Daemon  # noqa: E402
 from layout_fixer.layout_state import get_actuator  # noqa: E402
 from layout_fixer.reader import KeyboardReader  # noqa: E402
@@ -80,6 +81,13 @@ class PipelineTestCase(unittest.TestCase):
     def make_daemon(self, **overrides) -> tuple[Daemon, RecordingInjector]:
         overrides.setdefault("decisions_log", str(self.log_path))
         config = Config(**overrides)
+        # Эталонный extra_words.txt — это данные, а не логика: он меняется
+        # вместе с словарём и ломает тесты вроде «этого слова в словаре нет».
+        # Тесты проверяют код на собственном наборе слов.
+        extra = getattr(daemon_module, "_packaged_extra_words", None)
+        self._saved_packed = extra
+        if extra is not None:
+            daemon_module._packaged_extra_words = lambda: []
         recorder = RecordingInjector()
         daemon = Daemon(config, injector=recorder)
         daemon.state.injector = recorder

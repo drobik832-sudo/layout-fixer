@@ -17,3 +17,8 @@ layout-fixer = "layout_fixer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# Эталонный список слов едет вместе с пакетом: иначе при переносе на другую
+# машину слова из extra_words.txt потеряются молча.
+layout_fixer = ["extra_words.txt"]

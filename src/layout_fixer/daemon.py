@@ -76,6 +76,26 @@ class _InjectedWord:
     erased: int = 0
 
 
+PACKAGED_EXTRA_WORDS = Path(__file__).with_name("extra_words.txt")
+
+
+def _packaged_extra_words() -> list[str]:
+    """Слова из extra_words.txt рядом с кодом — эталон, не теряется с репозиторием.
+
+    В конфиге (~/.config/layout-fixer/config.toml) слова живут вне git, и при
+    переносе настроек пропадают молча. Этот файл едет вместе с пакетом.
+    """
+    try:
+        text = PACKAGED_EXTRA_WORDS.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
 class Daemon:
     """Связывает чтение клавиатуры, детектор и исполнителя в один цикл."""
 
@@ -142,7 +162,12 @@ class Daemon:
         буквы в ``en_US`` не появляются, а дописать их туда бессмысленно —
         и вредно, потому что детектор решит, что слово есть в обеих раскладках.
         """
-        if not config.extra_words:
+        words = _packaged_extra_words() + list(config.extra_words)
+        seen, unique = set(), []
+        for w in words:
+            if w not in seen:
+                seen.add(w); unique.append(w)
+        if not unique:
             return
         for layout in self.tables.layouts:
             checker = self.spell.for_layout(layout)
@@ -150,7 +175,7 @@ class Daemon:
                 continue
             added = [
                 word
-                for word in config.extra_words
+                for word in unique
                 if self._typeable(layout, word) and not checker.known(word)
             ]
             for word in added:
