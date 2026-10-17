@@ -217,13 +217,18 @@ class LayoutState:
 
     # --- переключение ---------------------------------------------------
     def toggle(self) -> str:
-        """Переключить раскладку в системе (инъекцией актуатора) и в своём состоянии."""
+        """Переключить раскладку в системе (инъекцией актуатора) и в своём состоянии.
+
+        Здесь намеренно нет ``time.sleep(settle)``. Этот sleep выполнялся прямо
+        в event loop и на 80 мс подвешивал всю обработку ввода при каждом
+        переключении — события копились, а потери букв выглядели как «клавиатура
+        глючит». Ожидание перенесено в ensure(): там оно ограничено по времени и
+        происходит только когда переключение действительно нужно.
+        """
         if self.injector is None:
             raise RuntimeError("для переключения раскладки нужен Injector")
         log.debug("переключение раскладки инъекцией %s: %s -> ...", self.actuator.name, self.current)
         self.injector.tap(self.actuator.code)
-        if self.settle:
-            time.sleep(self.settle)
         self._index = (self._index + 1) % len(self.layouts)
         log.debug("раскладка переключена: %s", self.current)
         self._mark_switched()
@@ -256,11 +261,20 @@ class LayoutState:
             return False
         # Переключаем по одному шагу: xkb-опция с LockGroup(+1) умеет только
         # «следующая группа», произвольный переход не поддерживается.
+        #
+        # После инъекции X-сервер применяет группу не мгновенно, поэтому
+        # ждём результата короткими паузами вместо слепого sleep. Общая
+        # верхняя граница — settle, чтобы демон не завис, если сервер молчит.
+        deadline = time.monotonic() + max(self.settle, 0.15)
         for _ in range(len(self.layouts)):
             self.toggle()
-            self.refresh()
-            if self.current == layout:
-                return True
+            while True:
+                self.refresh()
+                if self.current == layout:
+                    return True
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.005)
         log.warning(
             "не удалось переключиться на %r (после %d шагов в %r)",
             layout, len(self.layouts), self.current,

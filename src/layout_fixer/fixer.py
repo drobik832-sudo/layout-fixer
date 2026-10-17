@@ -46,6 +46,7 @@ class Fixer:
         # между нием пользователь успевает нажать Shift или включить Caps Lock.
         self.mods = mods
         self.fixes = 0
+        self.fixes_skipped = 0
 
     def _separator_to_type(
         self, separator: str, source_layout: str, target_layout: str
@@ -141,10 +142,26 @@ class Fixer:
         # Раскладка, в которой пользователь печатал: возвращаем её только если
         # включено restore_layout, по умолчанию остаёмся в целевой.
         original = self.state.current
+        target = decision.target_layout
+
+        # СНАЧАЛА переключаемся, потом стираем. Раньше было наоборот, и при
+        # неудачном переключении (в логе «не удалось переключиться на 'ru'»)
+        # слово уже стиралось, а русский текст печатался в английской
+        # раскладке. Для пользователя это выглядит как «клавиши не нажимаются»:
+        # вместо правки на экране оказывается мусор.
+        switched = self.state.ensure(target)
+        if self.state.current != target:
+            self.fixes_skipped += 1
+            log.warning(
+                "не удалось переключиться на %r (в %r) — текст не трогаю",
+                target, self.state.current,
+            )
+            return False
+
         # Стираем: слово + разделитель (разделитель уже ушёл в приложение).
+        # Backspace от раскладки не зависит, поэтому порядок безопасен.
         self.injector.backspace(len(decision.word) + len(separator))
-        switched = self.state.ensure(decision.target_layout)
-        skipped = self.injector.type_text(decision.converted + separator, decision.target_layout)
+        skipped = self.injector.type_text(decision.converted + separator, target)
         if skipped:
             log.warning("не удалось напечатать символы: %s", skipped)
         if switched and self.config.restore_layout:
