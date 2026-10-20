@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import select
 from collections.abc import Callable, Iterable
 
 import evdev
@@ -242,14 +243,37 @@ class KeyboardReader:
             return
 
     def _read_blocking(self, device: InputDevice, loop) -> None:
-        for event in device.read_loop():
-            if event.type != e.EV_KEY:
+        """Чтение одного устройства в отдельном потоке.
+
+        evdev.read_loop() блокирует до САМОГО СЛЕДУЮЩЕГО события; пока клавиш
+        нет, поток висит внутри, его не прервать ни отменой задачи, ни флагом.
+        Именно это повесило остановку демона на 90 секунд (TimeoutStopSec),
+        после чего systemd убивал процесс SIGKILL.
+
+        Поэтому: select с таймаутом 0.3 с — поток просыпается регулярно,
+        проверяет self._stop и выходит сам; данные читаются только когда fd
+        готов. Поведение ввода то же, задержки не добавляет.
+        """
+        while not self._stop.is_set():
+            try:
+                ready, _, _ = select.select([device.fd], [], [], 0.3)
+            except (OSError, ValueError):
+                # устройство исчезло (переподключение) или fd закрыт.
+                return
+            if not ready:
                 continue
             try:
-                loop.call_soon_threadsafe(self._deliver, device, event)
-            except RuntimeError:
-                # loop закрыт — читать больше незачем.
+                events = device.read()
+            except (OSError, evdev.EvdevError):
                 return
+            for event in events:
+                if event.type != e.EV_KEY:
+                    continue
+                try:
+                    loop.call_soon_threadsafe(self._deliver, device, event)
+                except RuntimeError:
+                    # loop закрыт — читать больше незачем.
+                    return
 
     def _deliver(self, device: InputDevice, event) -> None:
         try:
