@@ -648,7 +648,7 @@ class Daemon:
         if not moved:
             log.debug("клик мышью (%s) без перемещения — курсор на месте", device_name)
             return
-        log.info("клик мышью с перемещением (%s) — курсор мог уехать", device_name)
+        log.debug("клик мышью с перемещением (%s) — курсор мог уехать", device_name)
         self._caret_maybe_moved = True
         self._caret_click_at = time.monotonic()
         self._revert = None
