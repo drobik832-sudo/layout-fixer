@@ -26,6 +26,9 @@ jobs:
       - name: Окружение
         run: |
           python3 -m venv --system-site-packages .venv
+          # В Python 3.12 venv создаётся без setuptools, а --no-build-isolation
+          # запрещает pip скачать его самому. Ставим явно.
+          .venv/bin/pip install -U pip setuptools wheel
           .venv/bin/pip install -e . --no-build-isolation
 
       # Тестам не нужны ни X-сервер, ни /dev/uinput: make_daemon подменяет
