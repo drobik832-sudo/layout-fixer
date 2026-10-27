@@ -11,25 +11,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      # evdev и PyGObject в PyPI собираются из исходников и требуют заголовков.
-      # В Ubuntu они уже есть готовыми пакетами для системного python3,
-      # поэтому venv создаётся с --system-site-packages — как в README.
+      # evdev и PyGObject есть в Ubuntu готовыми пакетами для системного
+      # python3, а в PyPI собираются из исходников и требуют заголовков.
+      # Поэтому НЕ используем actions/setup-python: он подставляет свой
+      # python из toolcache, чей site-packages пуст, и --system-site-packages
+      # тогда ничего не даёт. Работаем системным /usr/bin/python3 (3.12).
       - name: Системные зависимости
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-evdev python3-gi gir1.2-glib-2.0 hunspell-ru hunspell-en-us
+          sudo apt-get install -y \
+            python3-venv python3-setuptools python3-pip \
+            python3-evdev python3-gi gir1.2-glib-2.0 \
+            hunspell hunspell-ru hunspell-en-us
 
       - name: Окружение
         run: |
-          python3 -m venv --system-site-packages .venv
+          /usr/bin/python3 -m venv --system-site-packages .venv
           # В Python 3.12 venv создаётся без setuptools, а --no-build-isolation
           # запрещает pip скачать его самому. Ставим явно.
           .venv/bin/pip install -U pip setuptools wheel
           .venv/bin/pip install -e . --no-build-isolation
+
+      - name: Проверка зависимостей
+        run: |
+          .venv/bin/python -c "import evdev, gi; print('evdev', evdev.__version__)"
 
       # Тестам не нужны ни X-сервер, ни /dev/uinput: make_daemon подменяет
       # чтение раскладки. Поэтому тесты идут на голом раннере.
