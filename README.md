@@ -263,7 +263,7 @@ Lock, AltGr и варианты раскладок).
 ## Разработка
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -v   # 117 тестов конвейера
+.venv/bin/python -m unittest discover -s tests -v   # 156 тестов конвейера
 .venv/bin/layout-fixer sniff                        # наблюдать клавиатуру и раскладку
 .venv/bin/python scripts/spike_inject_test.py       # проверить инъекцию (печать/Backspace/раскладка)
 ```
