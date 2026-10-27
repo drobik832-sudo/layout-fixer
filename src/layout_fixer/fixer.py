@@ -15,6 +15,7 @@ Escape — у них есть побочный эффект, который не
 from __future__ import annotations
 
 import logging
+import time
 
 from .buffer import UNSAFE_SEPARATORS
 from .config import Config
@@ -158,6 +159,27 @@ class Fixer:
             )
             return False
 
+        # Пауза после переключения ПЕРЕД печатью. Без неё первый напечатанный
+        # символ уходит в старую раскладку: у пользователя на экране вместо
+        # «включил» появлялось «dключил» — первая буква английская, остальные
+        # русские. Группа в X уже новая (её и проверяет ensure), но приложение
+        # применяет смену раскладки к вводу чуть позже, и самый первый символ
+        # успевает попасть в прежнюю.
+        #
+        # Раньше эту паузу делал toggle(), и я её убрал, потому что она
+        # блокировала event loop. Теперь чтение клавиатуры живёт в отдельном
+        # потоке: за время сна события ждут в очереди и не теряются.
+        if switched and self.config.settle:
+            time.sleep(self.config.settle)
+            self.state.refresh()
+            if self.state.current != target:
+                self.fixes_skipped += 1
+                log.warning(
+                    "после паузы раскладка %r, а нужна %r — текст не трогаю",
+                    self.state.current, target,
+                )
+                return False
+
         # Стираем: слово + разделитель (разделитель уже ушёл в приложение).
         # Backspace от раскладки не зависит, поэтому порядок безопасен.
         self.injector.backspace(len(decision.word) + len(separator))
@@ -166,6 +188,8 @@ class Fixer:
             log.warning("не удалось напечатать символы: %s", skipped)
         if switched and self.config.restore_layout:
             self.state.ensure(original)
+            if self.config.settle:
+                time.sleep(self.config.settle)
             log.debug("раскладка возвращена в %s", original)
         self.fixes += 1
         log.info(
