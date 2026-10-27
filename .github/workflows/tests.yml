@@ -34,7 +34,7 @@ jobs:
 
       - name: Проверка зависимостей
         run: |
-          .venv/bin/python -c "import evdev, gi; print('evdev', evdev.__version__)"
+          .venv/bin/python -c "import evdev, gi; print('evdev', evdev.__file__); print('gi ok')"
 
       # Тестам не нужны ни X-сервер, ни /dev/uinput: make_daemon подменяет
       # чтение раскладки. Поэтому тесты идут на голом раннере.
